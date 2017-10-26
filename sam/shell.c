@@ -70,11 +70,11 @@ plan9(File *f, int type, String *s, int nest)
                 io = pipe2[1];
                 if ((retcode = !setjmp(mainloop))){  /* assignment = */
                     char *c;
-                    for(l = 0; l<plan9buf->nrunes; l+=m){
-                        m = plan9buf->nrunes-l;
+                    for(l = 0; l < bufferlength(plan9buf); l+=m){
+                        m = bufferlength(plan9buf) - l;
                         if(m>BLOCKSIZE-1)
                             m = BLOCKSIZE-1;
-                        Bread(plan9buf, genbuf, m, l);
+                        readbuffer(plan9buf, l, m, genbuf);
                         genbuf[m] = 0;
                         c = Strtoc(tmprstr(genbuf, m+1));
                         Write(pipe2[1], c, strlen(c));

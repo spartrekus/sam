@@ -23,17 +23,17 @@ enum{
 void
 freebufs(void)
 {
-    Bterm(undobuf);
-    Bterm(snarfbuf);
-    Bterm(plan9buf);
+    closebuffer(undobuf);
+    closebuffer(snarfbuf);
+    closebuffer(plan9buf);
 }
 
 void
 Fstart(void)
 {
-    undobuf = Bopen();
-    snarfbuf = Bopen();
-    plan9buf = Bopen();
+    undobuf = openbuffer();
+    snarfbuf = openbuffer();
+    plan9buf = openbuffer();
 }
 
 void
@@ -47,7 +47,7 @@ Fmark(File *f, Mod m)
     if(f->state == Unread)  /* this is implicit 'e' of a file */
         return;
     p = m==0? -1 : f->markp;
-    f->markp = t->nrunes;
+    f->markp = bufferlength(t);
     puthdr_M(t, p, f->dot.r, f->mark, f->mod, f->state);
     f->ndot = f->dot;
     f->marked = true;
@@ -63,11 +63,10 @@ Fopen(void)
     File *f;
 
     f = emalloc(sizeof(File));
-    f->buf = Bopen();
-    f->transcript = Bopen();
+    f->buf = openbuffer();
+    f->transcript = openbuffer();
     if(++fcount == NDISC)
         fcount = 0;
-    f->nrunes = 0;
     f->markp = 0;
     f->mod = 0;
     f->dot.f = f;
@@ -89,8 +88,8 @@ Fclose(File *f)
 
     if(f == lastfile)
         lastfile = NULL;
-    Bterm(f->buf);
-    Bterm(f->transcript);
+    closebuffer(f->buf);
+    closebuffer(f->transcript);
     Strclose(&f->name);
     Strclose(&f->cache);
     if(f->rasp)
@@ -116,7 +115,7 @@ Finsert(File *f, String *str, Posn p1)
     if(str->n >= BLOCKSIZE){    /* don't bother with the cache */
         Fflush(f);
         puthdr_csl(t, 'i', str->n, p1);
-        Binsert(t, str, t->nrunes);
+        insertbuffer(t, bufferlength(t), str->s, str->n);
     }else{  /* insert into the cache instead of the transcript */
         if(f->cp2==0 && f->cp1==0 && f->cache.n==0) /* empty cache */
             f->cp1 = f->cp2 = p1;
@@ -192,7 +191,7 @@ Fflush(File *f)
         puthdr_cll(t, 'd', p1, p2);
     if(f->cache.n){
         puthdr_csl(t, 'i', f->cache.n, p2);
-        Binsert(t, &f->cache, t->nrunes);
+        insertbuffer(t, bufferlength(t), f->cache.s, f->cache.n);
         Strzero(&f->cache);
     }
     f->cp1 = f->cp2 = 0;
@@ -212,7 +211,7 @@ Fsetname(File *f, String *s)
         if(f->mod < modnum)
             Fmark(f, modnum);
         puthdr_cs(t, 'f', s->n);
-        Binsert(t, s, t->nrunes);
+        insertbuffer(t, bufferlength(t), s->s, s->n);
     }
 }
 
@@ -245,7 +244,7 @@ Fupdate(File *f, int mktrans, int toterm)
     else
         p0 = 0;
     f->dot = f->ndot;
-    while((n=Bread(t, (wchar_t*)&buf, sizeof buf/RUNESIZE, p0)) > 0){
+    while((n=readbuffer(t, p0, sizeof buf/RUNESIZE, (wchar_t*)&buf)) > 0){
         switch(buf.cs.c){
         default:
             panic("unknown in Fupdate");
@@ -266,11 +265,10 @@ Fupdate(File *f, int mktrans, int toterm)
                     else
                         ni = p2-p;
                     puthdr_csl(u, 'i', ni, p1);
-                    Bread(f->buf, tmp, ni, p);
-                    Binsert(u, ftempstr(tmp, ni), u->nrunes);
+                    readbuffer(f->buf, p, ni, tmp);
+                    insertbuffer(u, bufferlength(u), tmp, ni);
                 }
-            f->nrunes -= p2-p1;
-            Bdelete(f->buf, p1, p2);
+            deletebuffer(f->buf, p1, p2 - p1);
             changes = true;
             break;
 
@@ -278,13 +276,13 @@ Fupdate(File *f, int mktrans, int toterm)
             n = buf.cs.s;
             p0 += sizeof(struct _cs)/RUNESIZE;
             Strinsure(&genstr, n+1);
-            Bread(t, tmp, n, p0);
+            readbuffer(t, p0, n, tmp);
             tmp[n] = 0;
             p0 += n;
             Strdupl(&genstr, tmp);
             if(!mktrans){
                 puthdr_cs(u, 'f', f->name.n);
-                Binsert(u, &f->name, u->nrunes);
+                insertbuffer(u, bufferlength(u), f->name.s, f->name.n);
             }
             Strduplstr(&f->name, &genstr);
             sortname(f);
@@ -304,14 +302,13 @@ Fupdate(File *f, int mktrans, int toterm)
             if(!mktrans)
                 puthdr_cll(u, 'd', p1, p1+n);
             changes = true;
-            f->nrunes += n;
             while(n > 0){
                 if(n > BLOCKSIZE)
                     ni = BLOCKSIZE;
                 else
                     ni = n;
-                Bread(t, tmp, ni, p0);
-                Binsert(f->buf, ftempstr(tmp, ni), p1);
+                readbuffer(t, p0, ni, tmp);
+                insertbuffer(f->buf, p1, tmp, ni);
                 n -= ni;
                 p1 += ni;
                 p0 += ni;
@@ -322,34 +319,35 @@ Fupdate(File *f, int mktrans, int toterm)
     toterminal(f, toterm);
     f->dot.r.p1 += deltadot;
     f->dot.r.p2 += deltadot;
-    if(f->dot.r.p1 > f->nrunes)
-        f->dot.r.p1 = f->nrunes;
-    if(f->dot.r.p2 > f->nrunes)
-        f->dot.r.p2 = f->nrunes;
+    if(f->dot.r.p1 > bufferlength(f->buf))
+        f->dot.r.p1 = bufferlength(f->buf);
+    if(f->dot.r.p2 > bufferlength(f->buf))
+        f->dot.r.p2 = bufferlength(f->buf);
     f->mark.p1 += deltamark;
     f->mark.p2 += deltamark;
-    if(f->mark.p1 > f->nrunes)
-        f->mark.p1 = f->nrunes;
-    if(f->mark.p2 > f->nrunes)
-        f->mark.p2 = f->nrunes;
+    if(f->mark.p1 > bufferlength(f->buf))
+        f->mark.p1 = bufferlength(f->buf);
+    if(f->mark.p2 > bufferlength(f->buf))
+        f->mark.p2 = bufferlength(f->buf);
     if(n < 0)
         panic("Fupdate read");
     if(f == cmd)
         f->mod = 0; /* can't undo command file */
     if(p0 > f->markp+sizeof(Posn)/RUNESIZE){    /* for undo, this throws away the undo transcript */
         if(f->mod > 0){ /* can't undo the dawn of time */
-            Bdelete(t, f->markp+sizeof(Mark)/RUNESIZE, t->nrunes);
+            Posn dp = f->markp + sizeof(Mark)/RUNESIZE;
+            deletebuffer(t, dp, bufferlength(t) - dp);
             /* copy the undo list back into the transcript */
-            for(p = 0; p<u->nrunes; p+=ni){
-                if(u->nrunes-p>BLOCKSIZE)
+            for(p = 0; p < bufferlength(u); p+=ni){
+                if (bufferlength(u) - p > BLOCKSIZE)
                     ni = BLOCKSIZE;
                 else
-                    ni = u->nrunes-p;
-                Bread(u, tmp, ni, p);
-                Binsert(t, ftempstr(tmp, ni), t->nrunes);
+                    ni = bufferlength(u) - p;
+                readbuffer(u, p, ni, tmp);
+                insertbuffer(t, bufferlength(t), tmp, ni);
             }
         }
-        Bdelete(u, (Posn)0, u->nrunes);
+        deletebuffer(u, 0, bufferlength(u));
     }
     return f==cmd? false : changes;
 }
@@ -364,7 +362,7 @@ puthdr_csl(Buffer *b, char c, int16_t s, Posn p)
     buf.c = c;
     buf.s = s;
     buf.l = p;
-    Binsert(b, ftempstr((wchar_t*)&buf, sizeof buf/RUNESIZE), b->nrunes);
+    insertbuffer(b, bufferlength(b), (wchar_t *)&buf, sizeof buf/RUNESIZE);
 }
 
 void
@@ -374,7 +372,7 @@ puthdr_cs(Buffer *b, char c, int16_t s)
 
     buf.c = c;
     buf.s = s;
-    Binsert(b, ftempstr((wchar_t*)&buf, sizeof buf/RUNESIZE), b->nrunes);
+    insertbuffer(b, bufferlength(b), (wchar_t *)&buf, sizeof buf/RUNESIZE);
 }
 
 void
@@ -390,7 +388,7 @@ puthdr_M(Buffer *b, Posn p, Range dot, Range mk, Mod m, int16_t s1)
     mark.mark = mk;
     mark.m = m;
     mark.s1 = s1;
-    Binsert(b, ftempstr((wchar_t *)&mark, sizeof mark/RUNESIZE), b->nrunes);
+    insertbuffer(b, bufferlength(b), (wchar_t *)&mark, sizeof mark/RUNESIZE);
 }
 
 void
@@ -403,22 +401,22 @@ puthdr_cll(Buffer *b, char c, Posn p1, Posn p2)
     buf.c = c;
     buf.l = p1;
     buf.l1 = p2;
-    Binsert(b, ftempstr((wchar_t*)&buf, sizeof buf/RUNESIZE), b->nrunes);
+    insertbuffer(b, bufferlength(b), (wchar_t *)&buf, sizeof buf/RUNESIZE);
 }
 
 int64_t
 Fchars(File *f, wchar_t *addr, Posn p1, Posn p2)
 {
-    return Bread(f->buf, addr, p2-p1, p1);
+    return readbuffer(f->buf, p1, p2 - p1, addr); /* XXX */
 }
 
 int
 Fgetcset(File *f, Posn p)
 {
-    if(p<0 || p>f->nrunes)
+    if(p<0 || p > bufferlength(f->buf))
         panic("Fgetcset out of range");
     if((f->ngetc = Fchars(f, f->getcbuf, p, p+NGETC))<0)
-        panic("Fgetcset Bread fail");
+        panic("Fgetcset readbuffer fail");
     f->getcp = p;
     f->getci = 0;
     return f->ngetc;
@@ -427,10 +425,10 @@ Fgetcset(File *f, Posn p)
 int
 Fbgetcset(File *f, Posn p)
 {
-    if(p<0 || p>f->nrunes)
+    if (p < 0 || p > bufferlength(f->buf))
         panic("Fbgetcset out of range");
     if((f->ngetc = Fchars(f, f->getcbuf, p<NGETC? (Posn)0 : p-NGETC, p))<0)
-        panic("Fbgetcset Bread fail");
+        panic("Fbgetcset readbuffer fail");
     f->getcp = p;
     f->getci = f->ngetc;
     return f->ngetc;

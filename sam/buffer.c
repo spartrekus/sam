@@ -1,21 +1,26 @@
-/* Copyright 2016 Rob King -- See LICENSE for details */
+#include <stdlib.h>
+#include <string.h>
 
 #include "sam.h"
 
-#define BUFFER_MIN 65535
-#define GAPSIZE(b) ((b)->ge - (b)->gs)
+#define BUFFER_MIN 1024
+#define GAP_MIN    2048
 
-typedef size_t pos_t;
-typedef struct Gapbuffer Gapbuffer;
-struct Gapbuffer{
+struct Buffer{
     size_t size;
-    pos_t gs;
-    pos_t ge;
+    Posn gs;
+    Posn ge;
     wchar_t *buf;
 };
 
-static void
-movegap(Gapbuffer *b, pos_t p)
+static inline size_t
+gapsize(const Buffer *b)
+{
+    return b->ge - b->gs;
+}
+
+static inline void
+movegap(Buffer *b, Posn p)
 {
     if (p == b->gs)
         return;
@@ -32,125 +37,112 @@ movegap(Gapbuffer *b, pos_t p)
     }
 }
 
-static void
-ensuregap(Gapbuffer *b, size_t l)
+static inline void
+ensuregap(Buffer *b, size_t l)
 {
-    size_t ns = b->size + l + BUFFER_MIN;
+    size_t ns = b->size + l + GAP_MIN;
     size_t es = b->size - b->ge;
 
-    if (GAPSIZE(b) >= l)
+    if (gapsize(b) >= l)
         return;
 
-    b->buf = realloc(b->buf, ns * RUNESIZE);
-    if (!b->buf)
-        panic("out of memory");
-
+    b->buf = realloc(b->buf, ns * sizeof(wchar_t));
     wmemmove(b->buf + (ns - es), b->buf + b->ge, es);
     b->ge = ns - es;
     b->size = ns;
 }
 
-static void
-deletebuffer(Gapbuffer *b, pos_t p, size_t l)
+void
+deletebuffer(Buffer *b, Posn p, size_t l)
 {
+    if (p > bufferlength(b))
+        return;
+
+    if (p + l > bufferlength(b))
+        l = bufferlength(b) - p;
+
     movegap(b, p);
     b->ge += l;
 }
 
-static size_t
-readbuffer(Gapbuffer *b, pos_t p, size_t l, wchar_t *c)
+inline size_t
+readbuffer(const Buffer *b, Posn p, size_t l, wchar_t *s)
 {
     size_t r = 0;
 
+    if (p > bufferlength(b))
+        return 0;
+
+    if (p + l > bufferlength(b))
+        l = bufferlength(b) - p;
+
     if (p < b->gs){
         size_t d = b->gs - p;
-        size_t t = l > d ? d : l;
+        size_t t = l > d? d : l;
 
-        wmemcpy(c, b->buf + p, t);
-        c += t;
+        wmemcpy(s, b->buf + p, t);
+        s += t;
         l -= t;
         r += t;
 
-        wmemcpy(c, b->buf + b->ge, l);
+        wmemcpy(s, b->buf + b->ge, l);
         r += l;
     } else{
-        p += GAPSIZE(b);
-
-        wmemcpy(c, b->buf + p, l);
+        p += gapsize(b);
+        wmemcpy(s, b->buf + p, l);
         r = l;
     }
 
     return r;
 }
 
-static void
-insertbuffer(Gapbuffer *b, pos_t p, const wchar_t *s, size_t l)
+inline wint_t
+getbufferchar(const Buffer *b, Posn p)
 {
+    wchar_t w = 0;
+    if (!readbuffer(b, p, 1, &w))
+        return WEOF;
+
+    return w;
+}
+
+void
+insertbuffer(Buffer *b, Posn p, const wchar_t *s, size_t l)
+{
+    if (l == 0)
+        l = wcslen(s);
+
+    if (p > bufferlength(b))
+        return;
+
     ensuregap(b, l);
     movegap(b, p);
     wmemcpy(b->buf + b->gs, s, l);
     b->gs += l;
 }
 
+inline size_t
+bufferlength(const Buffer *b)
+{
+    return b->size - gapsize(b);
+}
+
 Buffer *
-Bopen(void)
+openbuffer(void)
 {
     Buffer *b = calloc(1, sizeof(Buffer));
-    if (!b)
-        panic("out of memory");
+    b->buf = calloc(1, BUFFER_MIN * sizeof(wchar_t));
 
-    b->gb = calloc(1, sizeof(Gapbuffer));
-    if (!b->gb)
-        panic("out of memory");
-
-    b->gb->buf = calloc(1, BUFFER_MIN * RUNESIZE);
-    if (!b->gb->buf)
-        panic("out of memory");
-
-    b->gb->size = BUFFER_MIN;
-    b->gb->gs = 0;
-    b->gb->ge = BUFFER_MIN;
+    b->size = BUFFER_MIN;
+    b->gs = 0;
+    b->ge = BUFFER_MIN;
 
     return b;
 }
 
 void
-Bterm(Buffer *b)
+closebuffer(Buffer *b)
 {
-    if (b){
-        free(b->gb->buf);
-        free(b->gb);
-        free(b);
-    }
-}
-
-/* XXX - modify at call sites to use the internal functions */
-int
-Bread(Buffer *b, wchar_t *c, int l, Posn p)
-{
-    if (p + l > b->nrunes)
-        l = b->nrunes - p;
-
-    if (l <= 0)
-        return 0;
-
-    size_t r = readbuffer(b->gb, p, l, c);
-    return (int)r;
-}
-
-void
-Binsert(Buffer *b, String *s, Posn p)
-{
-    if (s->n > 0){
-        insertbuffer(b->gb, (size_t)p, s->s, s->n);
-        b->nrunes += s->n;
-    }
-}
-
-void
-Bdelete(Buffer *b, Posn p1, Posn p2)
-{
-    size_t l = p2 - p1;
-    deletebuffer(b->gb, p1, l);
-    b->nrunes -= l;
+    free(b->buf);
+    free(b);
 }

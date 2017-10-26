@@ -28,7 +28,7 @@ address(Addr *ap, Address a, int sign)
             break;
 
         case '$':
-            a.r.p1 = a.r.p2 = f->nrunes;
+            a.r.p1 = a.r.p2 = bufferlength(f->buf);
             break;
 
         case '\'':
@@ -53,7 +53,7 @@ address(Addr *ap, Address a, int sign)
             break;
 
         case '*':
-            a.r.p1 = 0, a.r.p2 = f->nrunes;
+            a.r.p1 = 0, a.r.p2 = bufferlength(f->buf);
             return a;
 
         case ',':
@@ -69,7 +69,7 @@ address(Addr *ap, Address a, int sign)
             if(ap->next)
                 a2 = address(ap->next, a, 0);
             else
-                a2.f = a.f, a2.r.p1 = a2.r.p2 = f->nrunes;
+                a2.f = a.f, a2.r.p1 = a2.r.p2 = bufferlength(f->buf);
             if(a1.f != a2.f)
                 error(Eorder);
             a.f = a1.f, a.r.p1 = a1.r.p1, a.r.p2 = a2.r.p2;
@@ -101,7 +101,7 @@ nextmatch(File *f, String *r, Posn p, int sign)
         if(!execute(f, p, INFINITY))
             error(Esearch);
         if(sel.p[0].p1==sel.p[0].p2 && sel.p[0].p1==p){
-            if(++p>f->nrunes)
+            if(++p > bufferlength(f->buf))
                 p = 0;
             if(!execute(f, p, INFINITY))
                 panic("address");
@@ -111,7 +111,7 @@ nextmatch(File *f, String *r, Posn p, int sign)
             error(Esearch);
         if(sel.p[0].p1==sel.p[0].p2 && sel.p[0].p2==p){
             if(--p<0)
-                p = f->nrunes;
+                p = bufferlength(f->buf);
             if(!bexecute(f, p))
                 panic("address");
         }
@@ -156,11 +156,10 @@ filematch(File *f, String *r)
     /* A little dirty... */
     if(menu == 0)
         (menu=Fopen())->state=Clean;
-    Bdelete(menu->buf, 0, menu->buf->nrunes);
-    Binsert(menu->buf, &genstr, 0);
-    menu->nrunes = menu->buf->nrunes;
+    deletebuffer(menu->buf, 0, bufferlength(menu->buf));
+    insertbuffer(menu->buf, 0, genstr.s, genstr.n);
     compile(r);
-    return execute(menu, 0, menu->nrunes);
+    return execute(menu, 0, bufferlength(menu->buf));
 }
 
 Address
@@ -172,7 +171,7 @@ charaddr(Posn l, Address addr, int sign)
         addr.r.p2 = addr.r.p1-=l;
     else if(sign > 0)
         addr.r.p1 = addr.r.p2+=l;
-    if(addr.r.p1<0 || addr.r.p2>addr.f->nrunes)
+    if (addr.r.p1 < 0 || addr.r.p2 > bufferlength(addr.f->buf))
         error(Erange);
     return addr;
 }

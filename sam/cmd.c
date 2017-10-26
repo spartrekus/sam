@@ -198,14 +198,14 @@ termcommand(void)
     Posn p;
 
     Fgetcset(cmd, cmdpt);
-    for(p=cmdpt; p<cmd->nrunes; p++){
+    for(p=cmdpt; p < bufferlength(cmd->buf); p++){
         if(terminp >= &termline[BLOCKSIZE]){
-            cmdpt = cmd->nrunes;
+            cmdpt = bufferlength(cmd->buf);
             error(Etoolong);
         }
         *terminp++ = Fgetc(cmd);
     }
-    cmdpt = cmd->nrunes;
+    cmdpt = bufferlength(cmd->buf);
 }
 
 void

@@ -709,8 +709,8 @@ bexecute(File *f, Posn startp)
             case 3:
                     goto Return;
                 list[0][0].inst = list[1][0].inst = 0;
-                Fgetcset(f, f->nrunes);
-                p = f->nrunes;
+                Fgetcset(f, bufferlength(f->buf));
+                p = bufferlength(f->buf);
                 goto doloop;
             default:
                 goto Return;
@@ -771,7 +771,7 @@ bexecute(File *f, Posn startp)
                 if(f->getci<f->ngetc-1){
                     if(f->getcbuf[f->getci+1]=='\n')
                         goto Step;
-                }else if(p<f->nrunes-1){
+                }else if(p < bufferlength(f->buf) - 1){
                     wchar_t c;
                     if(Fchars(f, &c, p, p+1)==1 && c=='\n')
                         goto Step;

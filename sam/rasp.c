@@ -31,7 +31,7 @@ toterminal(File *f, int toterm)
         p0 = 0;
     grown = 0;
     noflush = true;
-    while(Bread(t, (wchar_t*)&hdr, sizeof(hdr)/RUNESIZE, p0) > 0){
+    while(readbuffer(t, p0, sizeof(hdr)/RUNESIZE, (wchar_t*)&hdr) > 0){
         switch(hdr.g.cs.c){
         default:
             fprintf(stderr, "char %c %.2x\n", hdr.g.cs.c, hdr.g.cs.c);

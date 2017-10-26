@@ -307,7 +307,7 @@ rescue(void)
     io = -1;
     for(i=0; i<file.nused; i++){
         f = file.filepptr[i];
-        if(f==cmd || f->nrunes==0 || f->state!=Dirty)
+        if(f==cmd || bufferlength(f->buf)==0 || f->state!=Dirty)
             continue;
         if(io == -1){
             snprintf(buf, sizeof(buf) - 1, "%s/sam.save", home);
@@ -330,7 +330,7 @@ rescue(void)
         }else
             snprintf(buf, sizeof(buf) - 1, "nameless.%d", nblank++);
         dprintf(io, "samsave %s <<'---%s'\n", buf, buf);
-        addr.r.p1 = 0, addr.r.p2 = f->nrunes;
+        addr.r.p1 = 0, addr.r.p2 = bufferlength(f->buf);
         writeio(f);
         dprintf(io, "\n---%s\n", (char *)buf);
     }
@@ -368,8 +368,8 @@ hiccough(char *s)
     if(io > 0)
         close(io);
 
-    if(undobuf->nrunes)
-        Bdelete(undobuf, (Posn)0, undobuf->nrunes);
+    if (bufferlength(undobuf))
+        deletebuffer(undobuf, 0, bufferlength(undobuf));
 
     update();
 
@@ -451,7 +451,7 @@ cmdupdate(void)
 {
     if(cmd && cmd->mod!=0){
         Fupdate(cmd, false, downloaded);
-        cmd->dot.r.p1 = cmd->dot.r.p2 = cmd->nrunes;
+        cmd->dot.r.p1 = cmd->dot.r.p2 = bufferlength(cmd->buf);
         telldot(cmd);
     }
 }
@@ -506,9 +506,9 @@ edit(File *f, int cmd)
     if(cmd == 'r')
         Fdelete(f, addr.r.p1, addr.r.p2);
     if(cmd=='e' || cmd=='I'){
-        Fdelete(f, (Posn)0, f->nrunes);
-        addr.r.p2 = f->nrunes;
-    }else if(f->nrunes!=0 || (f->name.s[0] && Strcmp(&genstr, &f->name)!=0))
+        Fdelete(f, (Posn)0, bufferlength(f->buf));
+        addr.r.p2 = bufferlength(f->buf);
+    }else if(bufferlength(f->buf) !=0 || (f->name.s[0] && Strcmp(&genstr, &f->name)!=0))
         empty = false;
     if((io = open(genc, O_RDONLY))<0) {
         if (curfile && curfile->state == Unread)
@@ -594,8 +594,8 @@ undostep(File *f)
 
     t = f->transcript;
     changes = Fupdate(f, true, true);
-    Bread(t, (wchar_t*)&mark, (sizeof mark)/RUNESIZE, f->markp);
-    Bdelete(t, f->markp, t->nrunes);
+    readbuffer(t, f->markp, (sizeof mark)/RUNESIZE, (wchar_t *)&mark);
+    deletebuffer(t, f->markp, bufferlength(t) - f->markp);
     f->markp = mark.p;
     f->dot.r = mark.dot;
     f->ndot.r = mark.dot;
@@ -634,17 +634,17 @@ readcmd(String *s)
 
     if(flist == 0)
         (flist = Fopen())->state = Clean;
-    addr.r.p1 = 0, addr.r.p2 = flist->nrunes;
+    addr.r.p1 = 0, addr.r.p2 = bufferlength(flist->buf);
     retcode = plan9(flist, '<', s, false);
     Fupdate(flist, false, false);
     flist->mod = 0;
-    if (flist->nrunes > BLOCKSIZE)
+    if (bufferlength(flist->buf) > BLOCKSIZE)
         error(Etoolong);
     Strzero(&genstr);
-    Strinsure(&genstr, flist->nrunes);
-    Fchars(flist, genbuf, (Posn)0, flist->nrunes);
-    memmove(genstr.s, genbuf, flist->nrunes*RUNESIZE);
-    genstr.n = flist->nrunes;
+    Strinsure(&genstr, bufferlength(flist->buf));
+    Fchars(flist, genbuf, (Posn)0, bufferlength(flist->buf));
+    memmove(genstr.s, genbuf, bufferlength(flist->buf)*RUNESIZE);
+    genstr.n = bufferlength(flist->buf);
     Straddc(&genstr, '\0');
     return retcode;
 }

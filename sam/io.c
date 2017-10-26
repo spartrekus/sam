@@ -62,7 +62,7 @@ writef(File *f)
         error(Eappend);
     n = writeio(f);
     if(f->name.s[0]==0 || samename)
-        state(f, addr.r.p1==0 && addr.r.p2==f->nrunes? Clean : Dirty);
+        state(f, addr.r.p1==0 && addr.r.p2 == bufferlength(f->buf)? Clean : Dirty);
     if(newfile)
         dprint(L"(new file) ");
     if(addr.r.p2>0 && Fchars(f, &c, addr.r.p2-1, addr.r.p2) && c!='\n')

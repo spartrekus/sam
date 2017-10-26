@@ -40,8 +40,8 @@ lookorigin(File *f, Posn p0, Posn ls, int64_t rl)
     int nl, nc, c;
     Posn oldp0;
 
-    if(p0 > f->nrunes)
-        p0 = f->nrunes;
+    if(p0 > bufferlength(f->buf))
+        p0 = bufferlength(f->buf);
     oldp0 = p0;
     Fgetcset(f, p0);
     for(nl=nc=c=0; c!=-1 && nl<ls && nc<ls*CHARSHIFT; nc++)
@@ -100,7 +100,7 @@ doubleclick(File *f, Posn p1)
     int c, i;
     wchar_t *r, *l;
 
-    if(p1 > f->nrunes)
+    if(p1 > bufferlength(f->buf))
         return;
     f->dot.r.p1 = f->dot.r.p2 = p1;
     for(i=0; left[i]; i++){
@@ -122,7 +122,7 @@ doubleclick(File *f, Posn p1)
             return;
         }
         /* try right match */
-        if(p1 == f->nrunes){
+        if(p1 == bufferlength(f->buf)){
             Fbgetcset(f, p1);
             c = '\n';
         }else{
@@ -135,7 +135,7 @@ doubleclick(File *f, Posn p1)
                 if(c!='\n' || f->getcp!=0 ||
                    (Fgetcset(f, (Posn)0),Fgetc(f))=='\n')
                     f->dot.r.p1++;
-                f->dot.r.p2 = p1+(p1<f->nrunes && c=='\n');
+                f->dot.r.p2 = p1 + (p1 < bufferlength(f->buf) && c=='\n');
             }
             return;
         }

@@ -83,13 +83,6 @@ struct String
     wchar_t    *s;
 };
 
-struct Gapbuffer;
-struct Buffer
-{
-    Posn nrunes;
-    struct Gapbuffer *gb;
-};
-
 #define NGETC   128
 
 struct File
@@ -98,7 +91,6 @@ struct File
     Buffer  *transcript;    /* what's been done */
     Posn    markp;      /* file pointer to start of latest change */
     Mod     mod;        /* modification stamp */
-    Posn    nrunes;     /* total length of file */
     Posn    hiposn;     /* highest address touched this Mod */
     Address dot;        /* current position */
     Address ndot;       /* new current position after update */
@@ -165,12 +157,13 @@ union Hdr
 #define Fgetc(f)  ((--(f)->ngetc<0)? Fgetcload(f, (f)->getcp) : (f)->getcbuf[(f)->getcp++, (f)->getci++])
 #define Fbgetc(f) (((f)->getci<=0)? Fbgetcload(f, (f)->getcp) : (f)->getcbuf[--(f)->getcp, --(f)->getci])
 
-void    Bterm(Buffer*);
-void    Bdelete(Buffer*, Posn, Posn);
-void    Bflush(Buffer*);
-void    Binsert(Buffer*, String*, Posn);
-Buffer  *Bopen(void);
-int Bread(Buffer*, wchar_t*, int, Posn);
+void    closebuffer(Buffer*);
+void    deletebuffer(Buffer*, Posn, size_t);
+Buffer  *openbuffer(void);
+size_t readbuffer(const Buffer *b, Posn p, size_t l, wchar_t *s);
+void insertbuffer(Buffer *b, Posn p, const wchar_t *s, size_t l);
+size_t bufferlength(const Buffer *b);
+int Bread(Buffer*, wchar_t*, size_t, Posn);
 int Fbgetcload(File*, Posn);
 int Fbgetcset(File*, Posn);
 int64_t    Fchars(File*, wchar_t*, Posn, Posn);

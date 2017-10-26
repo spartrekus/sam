@@ -229,10 +229,10 @@ inmesg(Tmesg type)
         journaln(0, p1-p0);
         if(f->state == Unread)
             panic("Trequest: unread");
-        if(p1>f->nrunes)
-            p1 = f->nrunes;
-        if(p0>f->nrunes) /* can happen e.g. scrolling during command */
-            p0 = f->nrunes;
+        if(p1 > bufferlength(f->buf))
+            p1 = bufferlength(f->buf);
+        if(p0 > bufferlength(f->buf)) /* can happen e.g. scrolling during command */
+            p0 = bufferlength(f->buf);
         if(p0 == p1){
             i = 0;
             r.p1 = r.p2 = p0;
@@ -268,9 +268,9 @@ inmesg(Tmesg type)
         if(f->state == Unread)
             load(f);
         else{
-            if(f->nrunes>0){
-                rgrow(f->rasp, 0L, f->nrunes);
-                outTsll(Hgrow, f->tag, 0L, f->nrunes);
+            if(bufferlength(f->buf) > 0){
+                rgrow(f->rasp, 0L, bufferlength(f->buf));
+                outTsll(Hgrow, f->tag, 0L, bufferlength(f->buf));
             }
             outTs(Hcheck0, f->tag);
             moveto(f, f->dot.r);
@@ -299,7 +299,7 @@ inmesg(Tmesg type)
         Finsert(f, str, p0);
         if(Fupdate(f, false, false))
             modnum++;
-        if(f==cmd && p0==f->nrunes-i && i>0 && str->s[i-1]=='\n'){
+        if(f==cmd && p0 == bufferlength(f->buf) - i && i>0 && str->s[i-1]=='\n'){
             freetmpstr(str);
             termlocked++;
             termcommand();
@@ -326,17 +326,17 @@ inmesg(Tmesg type)
         f = whichfile(inshort());
         p0 = inlong();
         journaln(0, p0);
-        for(l=0; l<snarfbuf->nrunes; l+=m){
-            m = snarfbuf->nrunes-l;
+        for(l=0; l < bufferlength(snarfbuf); l+=m){
+            m = bufferlength(snarfbuf) - l;
             if(m>BLOCKSIZE)
                 m = BLOCKSIZE;
-            Bread(snarfbuf, genbuf, m, l);
+            readbuffer(snarfbuf, l, m, genbuf);
             Finsert(f, tmprstr(genbuf, m), p0);
         }
         if(Fupdate(f, false, true))
             modnum++;
         f->dot.r.p1 = p0;
-        f->dot.r.p2 = p0+snarfbuf->nrunes;
+        f->dot.r.p2 = p0 + bufferlength(snarfbuf);
         f->tdot.p1 = -1; /* force telldot to tell (arguably a BUG) */
         telldot(f);
         outTs(Hunlockfile, f->tag);
@@ -367,7 +367,7 @@ inmesg(Tmesg type)
         journaln(0, i);
         f = whichfile(i);
         addr.r.p1 = 0;
-        addr.r.p2 = f->nrunes;
+        addr.r.p2 = bufferlength(f->buf);
         if(f->name.s[0] == 0)
             error(Enoname);
         Strduplstr(&genstr, &f->name);
@@ -419,14 +419,14 @@ inmesg(Tmesg type)
         p0 = inlong();
         p1 = inlong();
         setgenstr(cmd, p0, p1);
-        Bdelete(snarfbuf, (Posn)0, snarfbuf->nrunes);
-        Binsert(snarfbuf, &genstr, (Posn)0);
+        deletebuffer(snarfbuf, 0, bufferlength(snarfbuf));
+        insertbuffer(snarfbuf, 0, genstr.s, genstr.n);
         outTl(Hsnarflen, genstr.n);
         if(genstr.s[genstr.n-1] != '\n')
             Straddc(&genstr, '\n');
-        Finsert(cmd, &genstr, cmd->nrunes);
+        Finsert(cmd, &genstr, bufferlength(cmd->buf));
         Fupdate(cmd, false, true);
-        cmd->dot.r.p1 = cmd->dot.r.p2 = cmd->nrunes;
+        cmd->dot.r.p1 = cmd->dot.r.p2 = bufferlength(cmd->buf);
         telldot(cmd);
         termcommand();
         break;
@@ -441,20 +441,20 @@ inmesg(Tmesg type)
         break;
 
     case Tstartsnarf:
-        if (snarfbuf->nrunes <= 0) {    /* nothing to export */
+        if (bufferlength(snarfbuf) <= 0) {    /* nothing to export */
             outTs(Hsetsnarf, 0);
             break;
         }
         c = 0;
         i = 0;
-        m = snarfbuf->nrunes;
+        m = bufferlength(snarfbuf);
         if(m > 32000) {     /* tmprstr stores len in a int16_t */
             m = 32000;
                 dprint(L"?warning: snarf buffer truncated\n");
         }
         rp = malloc(m*sizeof(wchar_t));
         if(rp){
-            Bread(snarfbuf, rp, m, 0);
+            readbuffer(snarfbuf, 0, m, rp);
             c = Strtoc(tmprstr(rp, m));
             free(rp);
             i = strlen(c);
@@ -478,8 +478,8 @@ inmesg(Tmesg type)
             c[m] = 0;
             str = tmpcstr(c);
             free(c);
-            Bdelete(snarfbuf, (Posn)0, snarfbuf->nrunes);
-            Binsert(snarfbuf, str, (Posn)0);
+            deletebuffer(snarfbuf, 0, bufferlength(snarfbuf));
+            insertbuffer(snarfbuf, 0, str->s, str->n);
             freetmpstr(str);
             outT0(Hunlock);
         }
@@ -503,12 +503,12 @@ snarf(File *f, Posn p1, Posn p2, Buffer *buf, bool emptyok)
 
     if(!emptyok && p1==p2)
         return;
-    Bdelete(buf, (Posn)0, buf->nrunes);
+    deletebuffer(buf, 0, bufferlength(buf));
     /* Stage through genbuf to avoid compaction problems (vestigial) */
     for(l=p1; l<p2; l+=i){
         i = p2-l>BLOCKSIZE? BLOCKSIZE : p2-l;
         Fchars(f, genbuf, l, l+i);
-        Binsert(buf, tmprstr(genbuf, i), buf->nrunes);
+        insertbuffer(buf, bufferlength(buf), genbuf, i);
     }
 }
 
@@ -545,14 +545,14 @@ setgenstr(File *f, Posn p0, Posn p1)
         memmove(genstr.s, genbuf, RUNESIZE*(p1-p0));
         genstr.n = p1-p0;
     }else{
-        if(snarfbuf->nrunes == 0)
+        if(bufferlength(snarfbuf) == 0)
             error(Eempty);
-        if(snarfbuf->nrunes > TBLOCKSIZE)
+        if(bufferlength(snarfbuf) > TBLOCKSIZE)
             error(Etoolong);
-        Bread(snarfbuf, genbuf, snarfbuf->nrunes, (Posn)0);
-        Strinsure(&genstr, snarfbuf->nrunes);
-        memmove(genstr.s, genbuf, RUNESIZE*snarfbuf->nrunes);
-        genstr.n = snarfbuf->nrunes;
+        readbuffer(snarfbuf, 0, bufferlength(snarfbuf), genbuf);
+        Strinsure(&genstr, bufferlength(snarfbuf));
+        memmove(genstr.s, genbuf, RUNESIZE * bufferlength(snarfbuf));
+        genstr.n = bufferlength(snarfbuf);
     }
 }
 
